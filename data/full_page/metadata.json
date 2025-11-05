@@ -1,0 +1,20 @@
+{
+  "dataset": "PRAIG/JAZZMUS",
+  "format": "full-page kern",
+  "removed": [
+    "musicxml",
+    "bounding_boxes",
+    "systems"
+  ],
+  "statistics": {
+    "total_samples": 0,
+    "total_chars": 0,
+    "splits": {
+      "train": {
+        "count": 0,
+        "chars": 0,
+        "errors": 293
+      }
+    }
+  }
+}

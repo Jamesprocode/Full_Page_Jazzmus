@@ -2,16 +2,14 @@
 Data preparation script for JazzMus full-page dataset
 
 This script:
-1. Downloads the JazzMus dataset from HuggingFace
-2. Removes bounding box data and XML files
-3. Extracts only kern ground truth files
-4. Organizes data for curriculum training
+1. Downloads the PRAIG/JAZZMUS dataset from HuggingFace
+2. Extracts full-page images and kern ground truth
+3. Removes bounding box data and XML files
+4. Organizes data into images/ and ground_truth/ folders
 """
 
-import shutil
-from pathlib import Path
 import json
-
+from pathlib import Path
 from datasets import load_dataset
 from rich.progress import track
 from rich.console import Console
@@ -20,254 +18,148 @@ console = Console()
 
 # Directories
 DATA_DIR = Path(__file__).parent / "data"
-RAW_DIR = DATA_DIR / "raw"
-CLEAN_DIR = DATA_DIR / "clean"
-FULL_PAGE_DIR = CLEAN_DIR / "full_page"
-REGIONS_DIR = CLEAN_DIR / "regions"
+OUTPUT_DIR = DATA_DIR / "full_page"
 
 
-def setup_directories():
-    """Create necessary directories"""
-    console.print("\n[bold blue]Setting up directories...[/bold blue]")
-
-    for directory in [DATA_DIR, RAW_DIR, CLEAN_DIR, FULL_PAGE_DIR, REGIONS_DIR]:
-        directory.mkdir(parents=True, exist_ok=True)
-        console.print(f"  Done {directory.name}")
-
-
-def download_jazzmus_dataset():
-    """Download JazzMus dataset from HuggingFace"""
-    console.print("\n[bold blue]Downloading JazzMus dataset from HuggingFace...[/bold blue]")
-
-    try:
-        # Load the dataset
-        console.print("  Loading dataset: [cyan]antoniorv6/JazzMus[/cyan]")
-        dataset = load_dataset('antoniorv6/JazzMus', trust_remote_code=True)
-
-        console.print("  [green]Success![/green] Dataset loaded successfully")
-        console.print(f"  Available splits: {list(dataset.keys())}")
-
-        for split_name, split_data in dataset.items():
-            console.print(f"    - {split_name}: {len(split_data)} samples")
-
-        return dataset
-
-    except Exception as e:
-        console.print(f"  [red]Error[/red] loading dataset: {e}")
-        return None
-
-
-def clean_and_extract_kern(dataset, output_dir: Path):
+def clean_sample(sample):
     """
-    Extract kern files from dataset and remove XML/bounding box data
+    Extract image and full-page **kern transcription
 
     Args:
-        dataset: HuggingFace dataset
-        output_dir: Directory to save cleaned data
+        sample: Single dataset sample (may be dict or JSON string)
+
+    Returns:
+        tuple: (image, kern_text)
     """
-    console.print("\n[bold blue]Cleaning and extracting kern files...[/bold blue]")
+    # Handle JSON string format
+    if isinstance(sample, str):
+        try:
+            sample = json.loads(sample)
+        except:
+            return None, ""
 
-    # Create output directories
-    images_dir = output_dir / "images"
-    gt_dir = output_dir / "ground_truth"
-    images_dir.mkdir(parents=True, exist_ok=True)
-    gt_dir.mkdir(parents=True, exist_ok=True)
+    image = None
+    kern = ""
 
-    stats = {
-        'total_samples': 0,
-        'kern_extracted': 0,
-        'xml_removed': 0,
-        'bbox_removed': 0,
-    }
+    # Extract image
+    if 'image' in sample:
+        image = sample['image']
+
+    # Extract full-page kern from encodings
+    if isinstance(sample, dict) and 'encodings' in sample:
+        if '**kern' in sample['encodings']:
+            kern = sample['encodings']['**kern']
+
+    return image, kern
+
+
+def process_dataset():
+    """Download and process the PRAIG/JAZZMUS dataset"""
+    console.print("[bold cyan]" + "=" * 80 + "[/bold cyan]")
+    console.print("[bold cyan]JazzMus Full-Page Data Preparation[/bold cyan]")
+    console.print("[bold cyan]" + "=" * 80 + "[/bold cyan]")
+
+    # Load dataset
+    console.print("\n[bold blue]Loading PRAIG/JAZZMUS dataset...[/bold blue]")
+    try:
+        dataset = load_dataset("PRAIG/JAZZMUS", trust_remote_code=True)
+        console.print(f"  [green]✓[/green] Dataset loaded successfully")
+        console.print(f"  Available splits: {list(dataset.keys())}")
+    except Exception as e:
+        console.print(f"  [red]✗[/red] Error: {e}")
+        return
 
     # Process each split
-    for split_name, split_data in dataset.items():
-        console.print(f"\n  Processing split: [cyan]{split_name}[/cyan]")
-
-        split_images_dir = images_dir / split_name
-        split_gt_dir = gt_dir / split_name
-        split_images_dir.mkdir(exist_ok=True)
-        split_gt_dir.mkdir(exist_ok=True)
-
-        for idx, sample in enumerate(track(split_data, description=f"  {split_name}")):
-            stats['total_samples'] += 1
-
-            # Extract image
-            if 'image' in sample:
-                image = sample['image']
-                image_path = split_images_dir / f"{split_name}_{idx:04d}.jpg"
-                image.save(image_path)
-
-            # Extract kern transcription (ignore XML and bounding boxes)
-            if 'kern' in sample or 'transcription' in sample:
-                kern_content = sample.get('kern', sample.get('transcription', ''))
-
-                # Save only kern file
-                kern_path = split_gt_dir / f"{split_name}_{idx:04d}.txt"
-                with open(kern_path, 'w', encoding='utf-8') as f:
-                    f.write(kern_content)
-
-                stats['kern_extracted'] += 1
-
-            # Track removed data (just for stats)
-            if 'xml' in sample or 'musicxml' in sample:
-                stats['xml_removed'] += 1
-
-            if 'bbox' in sample or 'bounding_box' in sample or 'boxes' in sample:
-                stats['bbox_removed'] += 1
-
-    # Print statistics
-    console.print("\n[bold green]Extraction complete![/bold green]")
-    console.print(f"  Total samples processed: {stats['total_samples']}")
-    console.print(f"  Kern files extracted: {stats['kern_extracted']}")
-    console.print(f"  XML data removed: {stats['xml_removed']}")
-    console.print(f"  Bounding box data removed: {stats['bbox_removed']}")
-
-    return stats
-
-
-def organize_for_training(clean_dir: Path):
-    """
-    Organize cleaned data into training-ready structure
-
-    Creates:
-    - train/val/test splits
-    - Proper directory structure for curriculum learning
-    """
-    console.print("\n[bold blue]Organizing data for training...[/bold blue]")
-
-    images_dir = clean_dir / "images"
-    gt_dir = clean_dir / "ground_truth"
-
-    # Create split directories
-    for split in ['train', 'val', 'test']:
-        (clean_dir / 'organized' / split / 'images').mkdir(parents=True, exist_ok=True)
-        (clean_dir / 'organized' / split / 'ground_truth').mkdir(parents=True, exist_ok=True)
-
-    # If dataset has explicit splits, use them
-    for split in ['train', 'val', 'test']:
-        split_img_dir = images_dir / split
-        split_gt_dir = gt_dir / split
-
-        if split_img_dir.exists():
-            console.print(f"  Organizing {split} split...")
-
-            # Copy images
-            for img_file in split_img_dir.glob("*.jpg"):
-                dest = clean_dir / 'organized' / split / 'images' / img_file.name
-                shutil.copy2(img_file, dest)
-
-            # Copy ground truth
-            for gt_file in split_gt_dir.glob("*.txt"):
-                dest = clean_dir / 'organized' / split / 'ground_truth' / gt_file.name
-                shutil.copy2(gt_file, dest)
-
-            img_count = len(list((clean_dir / 'organized' / split / 'images').glob("*.jpg")))
-            gt_count = len(list((clean_dir / 'organized' / split / 'ground_truth').glob("*.txt")))
-            console.print(f"    Done {split}: {img_count} images, {gt_count} kern files")
-
-
-def create_metadata(clean_dir: Path):
-    """Create metadata file with dataset information"""
-    console.print("\n[bold blue]Creating metadata...[/bold blue]")
-
-    organized_dir = clean_dir / 'organized'
-    metadata = {
-        'dataset': 'JazzMus',
-        'source': 'HuggingFace: antoniorv6/JazzMus',
-        'format': 'kern',
+    stats = {
+        'total_samples': 0,
+        'total_chars': 0,
         'splits': {}
     }
 
-    for split in ['train', 'val', 'test']:
-        split_dir = organized_dir / split
-        if split_dir.exists():
-            images = list((split_dir / 'images').glob("*.jpg"))
-            gt_files = list((split_dir / 'ground_truth').glob("*.txt"))
+    for split_name in dataset.keys():
+        console.print(f"\n[bold blue]Processing {split_name} split...[/bold blue]")
 
-            metadata['splits'][split] = {
-                'num_samples': len(images),
-                'num_gt_files': len(gt_files),
-            }
+        split_data = dataset[split_name]
+
+        # Create output directories
+        images_dir = OUTPUT_DIR / split_name / "images"
+        gt_dir = OUTPUT_DIR / split_name / "ground_truth"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        gt_dir.mkdir(parents=True, exist_ok=True)
+
+        split_stats = {'count': 0, 'chars': 0, 'errors': 0}
+
+        # Process each sample
+        for idx, sample in enumerate(track(split_data, description=f"  {split_name}")):
+            try:
+                # Extract image and kern
+                image, kern = clean_sample(sample)
+
+                if image is None or not kern:
+                    split_stats['errors'] += 1
+                    continue
+
+                # Save image
+                img_path = images_dir / f"{split_name}_{idx:04d}.jpg"
+                image.save(img_path)
+
+                # Save kern ground truth
+                gt_path = gt_dir / f"{split_name}_{idx:04d}.txt"
+                with open(gt_path, 'w', encoding='utf-8') as f:
+                    f.write(kern)
+
+                split_stats['count'] += 1
+                split_stats['chars'] += len(kern)
+
+            except Exception as e:
+                console.print(f"  [yellow]Warning[/yellow]: Error processing sample {idx}: {e}")
+                split_stats['errors'] += 1
+
+        stats['splits'][split_name] = split_stats
+        stats['total_samples'] += split_stats['count']
+        stats['total_chars'] += split_stats['chars']
+
+        console.print(f"  [green]✓[/green] Processed {split_stats['count']} samples")
+        if split_stats['errors'] > 0:
+            console.print(f"  [yellow]⚠[/yellow] {split_stats['errors']} errors")
 
     # Save metadata
-    metadata_path = clean_dir / 'metadata.json'
+    console.print("\n[bold blue]Creating metadata...[/bold blue]")
+    metadata = {
+        'dataset': 'PRAIG/JAZZMUS',
+        'format': 'full-page kern',
+        'removed': ['musicxml', 'bounding_boxes', 'systems'],
+        'statistics': stats
+    }
+
+    metadata_path = OUTPUT_DIR / 'metadata.json'
     with open(metadata_path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
 
-    console.print(f"  Metadata saved to: {metadata_path}")
-    console.print("\n[bold]Dataset Summary:[/bold]")
-    for split, info in metadata['splits'].items():
-        console.print(f"  {split}: {info['num_samples']} samples")
+    console.print(f"  [green]✓[/green] Metadata saved to: {metadata_path}")
 
-
-def verify_data_integrity(clean_dir: Path):
-    """Verify that all images have corresponding kern files"""
-    console.print("\n[bold blue]Verifying data integrity...[/bold blue]")
-
-    organized_dir = clean_dir / 'organized'
-    issues = []
-
-    for split in ['train', 'val', 'test']:
-        split_dir = organized_dir / split
-        if not split_dir.exists():
-            continue
-
-        images = {f.stem for f in (split_dir / 'images').glob("*.jpg")}
-        gt_files = {f.stem for f in (split_dir / 'ground_truth').glob("*.txt")}
-
-        # Check for missing ground truth
-        missing_gt = images - gt_files
-        if missing_gt:
-            issues.append(f"{split}: {len(missing_gt)} images missing ground truth")
-
-        # Check for extra ground truth
-        extra_gt = gt_files - images
-        if extra_gt:
-            issues.append(f"{split}: {len(extra_gt)} extra ground truth files")
-
-    if issues:
-        console.print("[yellow]  Issues found:[/yellow]")
-        for issue in issues:
-            console.print(f"    - {issue}")
-    else:
-        console.print("[green]  All data verified successfully![/green]")
-
-
-def main():
-    """Main execution function"""
-    console.print("[bold cyan]" + "=" * 80 + "[/bold cyan]")
-    console.print("[bold cyan]JazzMus Data Preparation[/bold cyan]")
-    console.print("[bold cyan]" + "=" * 80 + "[/bold cyan]")
-
-    # Step 1: Setup directories
-    setup_directories()
-
-    # Step 2: Download dataset
-    dataset = download_jazzmus_dataset()
-
-    if dataset is None:
-        console.print("[red]Failed to download dataset. Exiting.[/red]")
-        return
-
-    # Step 3: Clean and extract kern files
-    clean_and_extract_kern(dataset, CLEAN_DIR)
-
-    # Step 4: Organize for training
-    organize_for_training(CLEAN_DIR)
-
-    # Step 5: Create metadata
-    create_metadata(CLEAN_DIR)
-
-    # Step 6: Verify integrity
-    verify_data_integrity(CLEAN_DIR)
-
-    # Final summary
+    # Print summary
     console.print("\n[bold cyan]" + "=" * 80 + "[/bold cyan]")
-    console.print("[bold green]Data preparation complete![/bold green]")
-    console.print(f"[bold]Clean data location:[/bold] {CLEAN_DIR / 'organized'}")
+    console.print("[bold green]Data Preparation Complete![/bold green]")
     console.print("[bold cyan]" + "=" * 80 + "[/bold cyan]")
+    console.print(f"\n[bold]Output location:[/bold] {OUTPUT_DIR}")
+    console.print(f"[bold]Total samples:[/bold] {stats['total_samples']}")
+    console.print(f"[bold]Total kern characters:[/bold] {stats['total_chars']:,}")
+
+    console.print("\n[bold]Per-split breakdown:[/bold]")
+    for split_name, split_stats in stats['splits'].items():
+        console.print(f"  {split_name}:")
+        console.print(f"    - Images: {split_stats['count']}")
+        console.print(f"    - Ground truth: {split_stats['count']}")
+        console.print(f"    - Location: {OUTPUT_DIR / split_name}")
+
+    console.print("\n[bold]Directory structure:[/bold]")
+    console.print(f"  {OUTPUT_DIR}/")
+    for split_name in stats['splits'].keys():
+        console.print(f"    {split_name}/")
+        console.print(f"      images/       # {stats['splits'][split_name]['count']} .jpg files")
+        console.print(f"      ground_truth/ # {stats['splits'][split_name]['count']} .txt files")
 
 
 if __name__ == "__main__":
-    main()
+    process_dataset()
