@@ -1,0 +1,158 @@
+**kern	**mxhm
+*clefG2	*
+*k[b-e-a-d-]	*
+*A-:	*
+*M4/4	*
+=	=
+8fL	F:min
+[8ccJ	.
+2cc]	.
+4f	.
+=	=
+8enL	F:minmaj7
+[8ccJ	.
+2cc]	.
+4e	.
+=	=
+8e-XiL	F:min7
+[8ccJ	.
+2cc]	.
+4e-	.
+=	=
+8dnL	Bb:7
+[8b-J	.
+4b-_	.
+8b-]	.
+4d-X	.
+8Bn	.
+=	=
+8cL	Ab:maj7
+[8a-J	.
+2a-]	.
+.	F:min7
+8e-L	.
+8B-J	.
+=	=
+8Bn	Bb:min7
+4g	.
+[8An [8d-Xi	.
+4.A] 4.d-]	A:7
+8B	.
+!!linebreak:original
+=	=
+8cL	Ab:maj6
+8e-J	.
+4f	.
+4a-	.
+8fL	.
+[8e-J	.
+=	=
+8e-]	Ab:maj6
+4.A-	.
+2r	C:7
+=:|!	=:|!
+8e-	Ab:maj6
+4.A-	.
+2r	.
+=||	=||
+8fL	F:min7
+8gJ	.
+4a-	.
+8b-L	Bb:7
+8b-	.
+8a-	.
+8b-J	.
+=	=
+4a-	F:min7
+8b-L	.
+8b-J	.
+8a-L	Bb:7
+8b-J	.
+4a-	.
+=	=
+*^	*
+[1cc-X	4r	Ab:min7
+.	4g-X	.
+.	8fL	Db:7
+.	[8c-XJ	.
+.	4c-]	.
+=	=	=
+1cc-]	4g-X	Ab:min7
+.	8fL	.
+.	[8c-XJ	.
+.	2c-]	Db:7
+*v	*v	*
+!!linebreak:original
+=	=
+8fL	F:min7
+8gJ	.
+4a-	.
+8b-L	Bb:7
+8b-	.
+8a-	.
+8b-J	.
+=	=
+4a-	F:min7
+8b-L	.
+8b-J	.
+8a-L	Bb:7
+8b-J	.
+4a-	.
+=	=
+*^	*
+[1cc-X	2g-X	Ab:min7
+.	2f	Db:7
+=	=	=
+1cc-]	2g-X	Ab:min7
+.	2f	Db:7
+*v	*v	*
+!!linebreak:original
+=	=
+8fL	F:min7
+[8ccJ	.
+2cc]	.
+4f	.
+=	=
+8enL	F:minmaj7
+[8ccJ	.
+2cc]	.
+4e	.
+=	=
+8e-XiL	F:min7
+[8ccJ	.
+2cc]	.
+4e-	.
+=	=
+8dnL	Bb:7
+[8b-J	.
+4b-_	.
+8b-]	.
+4d-X	.
+8Bn	.
+!!linebreak:original
+=	=
+8cL	Ab:maj7
+[8a-J	.
+2a-]	.
+.	F:min7
+8e-L	.
+8B-J	.
+=	=
+8Bn	Bb:min7
+4g	.
+[8An [8d-Xi	.
+4.A] 4.d-]	A:7
+8B	.
+=	=
+8cL	Ab:maj6
+8e-J	.
+4f	.
+4a-	.
+8fL	.
+[8e-J	.
+=	=
+8e-]	.
+4.A-	.
+2r	C:7
+==	==
+*-	*-
