@@ -256,7 +256,6 @@ def process_dataset(dataset_name="PRAIG/JAZZMUS", output_name="full_page", max_i
         shuffled_titles = np.array(unique_titles)
         np.random.shuffle(shuffled_titles)
 
-        train_pct, val_pct, test_pct = split_ratio
         n_pieces = len(shuffled_titles)
         n_test = int(n_pieces * test_pct)
         n_val = int(n_pieces * val_pct)
