@@ -1,21 +1,27 @@
 """
-Data preparation script for JazzMus full-page dataset
+Data preparation script for JazzMus full-page dataset with piece-level splits
 
 This script:
 1. Downloads the PRAIG/JAZZMUS dataset from HuggingFace
-2. Extracts FULL-PAGE images and kern ground truth
-3. Removes bounding box data and XML files
-4. Organizes data into images/ and ground_truth/ folders for curriculum training
+2. Extracts piece titles from MusicXML to identify duplicates/versions
+3. Groups images by piece title
+4. Splits unique pieces 70/10/20
+5. Puts ALL versions of training pieces into train set
+6. Extracts FULL-PAGE images and kern ground truth
+7. Removes bounding box data and XML files
+8. Organizes data into images/ and ground_truth/ folders for curriculum training
 
 Structure:
-- Each sample has 'image' (full page) and 'annotation' (JSON with systems)
+- Each sample has 'image' (full page) and 'annotation' (JSON with systems/encodings)
 - annotation contains:
   - systems: array of individual staff systems with bounding boxes
-  - encodings: full-page **kern transcription (THIS IS WHAT WE WANT!)
+  - encodings: full-page **kern transcription + **musicxml (for title extraction)
 """
 
 import json
 import ast
+import re
+from collections import defaultdict
 from pathlib import Path
 from datasets import load_dataset
 from rich.progress import track
@@ -25,6 +31,67 @@ console = Console()
 
 # Directories
 DATA_DIR = Path(__file__).parent / "data"
+
+
+def extract_title_from_musicxml(musicxml_str):
+    """Extract title from MusicXML string."""
+    if not musicxml_str:
+        return None
+    match = re.search(r'<movement-title>(.*?)</movement-title>', musicxml_str)
+    if match:
+        return match.group(1).strip()
+    match = re.search(r'<work-title>(.*?)</work-title>', musicxml_str)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def extract_composer_from_musicxml(musicxml_str):
+    """Extract composer from MusicXML string."""
+    if not musicxml_str:
+        return None
+    match = re.search(r'<creator type="composer">(.*?)</creator>', musicxml_str)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def extract_piece_id(annotation_data, idx):
+    """
+    Extract piece ID from annotation (title - composer).
+
+    Args:
+        annotation_data: Annotation (string or dict)
+        idx: Image index for debugging
+
+    Returns:
+        str: Piece ID or fallback ID
+    """
+    # Parse annotation if it's a string
+    if isinstance(annotation_data, str):
+        try:
+            annotation = json.loads(annotation_data)
+        except json.JSONDecodeError:
+            try:
+                annotation = ast.literal_eval(annotation_data)
+            except:
+                return f"Unknown_{idx}"
+    else:
+        annotation = annotation_data
+
+    # Extract title and composer from MusicXML
+    if isinstance(annotation, dict) and 'encodings' in annotation:
+        encodings = annotation['encodings']
+        if isinstance(encodings, dict) and 'musicxml' in encodings:
+            musicxml = encodings['musicxml']
+            title = extract_title_from_musicxml(musicxml)
+            composer = extract_composer_from_musicxml(musicxml)
+
+            if title:
+                return f"{title} - {composer}" if composer else title
+
+    # Fallback
+    return f"Unknown_{idx}"
 
 
 def extract_full_page_data(image, annotation_data, idx):
@@ -65,7 +132,7 @@ def extract_full_page_data(image, annotation_data, idx):
     return image, full_page_kern
 
 
-def process_dataset(dataset_name="PRAIG/JAZZMUS", output_name="full_page", max_images=None, split_ratio=(0.7, 0.1, 0.2), random_seed=42):
+def process_dataset(dataset_name="PRAIG/JAZZMUS", output_name="full_page", max_images=None, split_ratio=(0.7, 0.1, 0.2), random_seed=42, synthetic_only=False):
     """
     Download and process a JazzMus dataset from HuggingFace
 
@@ -75,6 +142,7 @@ def process_dataset(dataset_name="PRAIG/JAZZMUS", output_name="full_page", max_i
         max_images: Limit number of images (for testing)
         split_ratio: (train, val, test) ratio
         random_seed: Random seed for reproducibility
+        synthetic_only: If True, save all data to a single 'synthetic' folder (no split)
     """
     import numpy as np
 
@@ -138,32 +206,89 @@ def process_dataset(dataset_name="PRAIG/JAZZMUS", output_name="full_page", max_i
     if failed > 0:
         console.print(f"  [yellow]⚠[/yellow] {failed} samples failed")
 
-    # Split into train/val/test
-    console.print(f"\n[bold blue]Creating train/val/test splits...[/bold blue]")
-
-    n_total = len(images_list)
-    indices = np.arange(n_total)
-    np.random.seed(random_seed)
-    np.random.shuffle(indices)
-
+    # Extract split ratios
     train_pct, val_pct, test_pct = split_ratio
-    n_test = int(n_total * test_pct)
-    n_val = int(n_total * val_pct)
-    n_train = n_total - n_test - n_val
 
-    test_idx = indices[:n_test]
-    val_idx = indices[n_test:n_test + n_val]
-    train_idx = indices[n_test + n_val:]
+    # Handle synthetic data (no splitting needed)
+    if synthetic_only:
+        console.print(f"\n[bold blue]Processing synthetic data (no split)...[/bold blue]")
 
-    splits = {
-        'train': train_idx,
-        'val': val_idx,
-        'test': test_idx
-    }
+        splits = {
+            'synthetic': np.arange(len(images_list))
+        }
 
-    console.print(f"  Train: {n_train} samples ({train_pct*100:.0f}%)")
-    console.print(f"  Val:   {n_val} samples ({val_pct*100:.0f}%)")
-    console.print(f"  Test:  {n_test} samples ({test_pct*100:.0f}%)")
+        console.print(f"  Total synthetic samples: {len(images_list)}")
+
+    else:
+        # Pass 1: Extract piece titles and group by title (identify versions/duplicates)
+        console.print(f"\n[bold blue]Pass 1: Extracting piece titles from MusicXML...[/bold blue]")
+
+        piece_titles = {}  # idx -> "Title - Composer"
+        title_to_indices = defaultdict(list)  # "Title - Composer" -> [idx1, idx2, ...]
+
+        for idx in track(range(len(images_list)), description="Extracting titles"):
+            orig_idx, _ = images_list[idx]
+            sample = dataset[orig_idx]
+            annotation = sample['annotation']
+
+            piece_id = extract_piece_id(annotation, orig_idx)
+            piece_titles[idx] = piece_id
+            title_to_indices[piece_id].append(idx)
+
+        unique_pieces = len(title_to_indices)
+        total_versions = len(images_list)
+        avg_versions = total_versions / unique_pieces if unique_pieces > 0 else 0
+
+        console.print(f"  [green]✓[/green] Found {unique_pieces} unique pieces")
+        console.print(f"  [green]✓[/green] Total images (including versions): {total_versions}")
+        console.print(f"  [green]✓[/green] Average versions per piece: {avg_versions:.2f}")
+
+        duplicates = {title: indices for title, indices in title_to_indices.items() if len(indices) > 1}
+        if duplicates:
+            console.print(f"  [yellow]⚠[/yellow] Pieces with duplicates: {len(duplicates)}")
+            console.print(f"  [yellow]⚠[/yellow] Total duplicate scores: {sum(len(indices) for indices in duplicates.values())}")
+
+        # Pass 2: Split unique pieces (not individual images)
+        console.print(f"\n[bold blue]Pass 2: Splitting unique piece titles...[/bold blue]")
+
+        unique_titles = list(title_to_indices.keys())
+        np.random.seed(random_seed)
+        shuffled_titles = np.array(unique_titles)
+        np.random.shuffle(shuffled_titles)
+
+        train_pct, val_pct, test_pct = split_ratio
+        n_pieces = len(shuffled_titles)
+        n_test = int(n_pieces * test_pct)
+        n_val = int(n_pieces * val_pct)
+        n_train = n_pieces - n_test - n_val
+
+        test_titles = shuffled_titles[:n_test].tolist()
+        val_titles = shuffled_titles[n_test:n_test + n_val].tolist()
+        train_titles = shuffled_titles[n_test + n_val:].tolist()
+
+        # Convert titles to indices - only first occurrence goes to val/test
+        val_indices = [title_to_indices[title][0] for title in val_titles]
+        test_indices = [title_to_indices[title][0] for title in test_titles]
+
+        assigned_to_val_or_test = set(val_indices + test_indices)
+
+        # Train: ALL indices not assigned to val/test (includes all versions of training pieces)
+        train_indices = [idx for idx in range(len(images_list)) if idx not in assigned_to_val_or_test]
+
+        splits = {
+            'train': np.array(train_indices),
+            'val': np.array(val_indices),
+            'test': np.array(test_indices)
+        }
+
+        console.print(f"  Unique pieces split:")
+        console.print(f"    Train: {n_train} pieces ({train_pct*100:.0f}%)")
+        console.print(f"    Val:   {n_val} pieces ({val_pct*100:.0f}%)")
+        console.print(f"    Test:  {n_test} pieces ({test_pct*100:.0f}%)")
+        console.print(f"\n  Total images (including all versions):")
+        console.print(f"    Train: {len(train_indices)} samples (includes all versions)")
+        console.print(f"    Val:   {len(val_indices)} samples")
+        console.print(f"    Test:  {len(test_indices)} samples")
 
     # Save data for each split
     console.print(f"\n[bold blue]Saving data...[/bold blue]")
@@ -265,6 +390,8 @@ if __name__ == "__main__":
                         help="Test set percentage")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed")
+    parser.add_argument("--synthetic", action="store_true",
+                        help="Process as synthetic data (no split, all to single 'synthetic' folder)")
 
     args = parser.parse_args()
 
@@ -273,5 +400,6 @@ if __name__ == "__main__":
         output_name=args.output_name,
         max_images=args.max_images,
         split_ratio=(args.train_pct, args.val_pct, args.test_pct),
-        random_seed=args.seed
+        random_seed=args.seed,
+        synthetic_only=args.synthetic
     )
