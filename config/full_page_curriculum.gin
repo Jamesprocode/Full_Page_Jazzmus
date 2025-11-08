@@ -1,0 +1,19 @@
+# Curriculum learning config for full-page jazz leadsheet recognition
+# Strategy: Train on synthetic data with increasing complexity
+# Then fine-tune on real handwritten data
+
+# Phase 1: Single system (baseline)
+# Phase 2: 2-3 systems
+# Phase 3: 3-4 systems
+# Phase 4: Full pages with mixed system counts
+# Phase 5: Fine-tune on handwritten full-page data
+
+FullPageDataModule.data_path = "data/handwritten"
+FullPageDataModule.vocab_name = "full_page_vocab"
+FullPageDataModule.batch_size = 4
+FullPageDataModule.num_workers = 4
+FullPageDataModule.fixed_img_height = 256
+FullPageDataModule.max_fix_img_width = 2048
+
+# Use pretrained encoder weights
+# Start with frozen encoder, gradually unfreeze for fine-tuning phases

@@ -1,0 +1,10 @@
+# Train with pretrained grandstaff encoder weights
+# Freeze encoder to leverage learned features
+# Fine-tune decoder for jazz chord recognition
+
+FullPageDataModule.data_path = "data/handwritten"
+FullPageDataModule.vocab_name = "full_page_vocab"
+FullPageDataModule.batch_size = 4
+FullPageDataModule.num_workers = 4
+FullPageDataModule.fixed_img_height = 256
+FullPageDataModule.max_fix_img_width = 2048

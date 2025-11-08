@@ -1,0 +1,9 @@
+# Baseline: Test system-level checkpoint on full-page (expect horrible results)
+# This demonstrates why curriculum learning is needed
+
+FullPageDataModule.data_path = "data/handwritten"
+FullPageDataModule.vocab_name = "full_page_vocab"
+FullPageDataModule.batch_size = 1
+FullPageDataModule.num_workers = 4
+FullPageDataModule.fixed_img_height = 256
+FullPageDataModule.max_fix_img_width = 2048
